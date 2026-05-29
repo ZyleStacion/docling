@@ -44,6 +44,8 @@ I would recommend adding a HuggingFace token before starting. This ensures your 
     $env:HF_TOKEN="your_token_here"
 ```
 
+Then run `converter.py`! Below is some code explanation if you'd like to understand how it works.
+
 ```python
 # Import Docling's required libraries
 from docling.datamodel.base_models import InputFormat
