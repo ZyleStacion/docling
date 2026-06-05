@@ -7,6 +7,9 @@ Tasks:
 # Setup
 
 1. Run `pip install docling` 😄
+
+> optional: run `pip install --upgrade label-studio-sdk` for integration with label studio **experimental: we have to verify the label studio version first**
+
 2. Get and use a HuggingFace token
 
 Once installed, you can experiment with:
