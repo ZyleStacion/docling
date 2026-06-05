@@ -19,7 +19,6 @@ OUTPUT_DIR = "label-studio-output"
 
 # Helper Functions
 
-
 def _convert_single_bbox(bbox, page_width, page_height):
     l = float(bbox["l"])
     t = float(bbox["t"])
@@ -55,35 +54,63 @@ def convert_bbox_to_ls(source_file: str | Path) -> list[dict]:
     """
     Load a Docling JSON annotation file and convert all bboxes to Label Studio format.
 
+    Handles two formats:
+      - Docling native: a dict with a "pages" key
+      - Label Studio export: a list of tasks with annotations
+
     Args:
-        source_file: path to a Docling .json file
+        source_file: path to a .json file
 
     Returns: a list of Label Studio region dicts with rectanglelabels, ready to upload.
     """
     with open(source_file, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    regions = []
-    for page_idx, page in enumerate(data.get("pages", [])):
-        pw = page.get("page_width", 0)
-        ph = page.get("page_height", 0)
-        for item_idx, item in enumerate(page.get("items", [])):
-            bbox = item.get("bbox")
-            if bbox is None:
-                continue
-            ls_bbox = _convert_single_bbox(bbox, pw, ph)
-            if ls_bbox is None:
-                continue
-            label = map_label(item)
-            regions.append({
-                "id": f"region_{page_idx}_{item_idx}",
-                "from_name": "layout_label",
-                "to_name": "pdf",
-                "type": "rectanglelabels",
-                "value": {**ls_bbox, "rectanglelabels": [label]},
-                "page_index": page_idx,
-            })
-    return regions
+    # Label Studio export format — list of tasks with annotations
+    if isinstance(data, list):
+        regions = []
+        for task in data:
+            page_idx = task.get("id", 0)
+            for ann in task.get("annotations", []):
+                for result in ann.get("result", []):
+                    value = dict(result["value"])
+                    value.setdefault("rectanglelabels", ["unspecified"])
+                    regions.append({
+                        "id": result.get("id", f"region_{len(regions)}"),
+                        "from_name": result.get("from_name", "layout_label"),
+                        "to_name": result.get("to_name", "pdf"),
+                        "type": result.get("type", "rectanglelabels"),
+                        "value": value,
+                        "page_index": result.get("item_index", 0),
+                        "origin": result.get("origin", "manual"),
+                    })
+        return regions
+
+    # Docling native format — dict with "pages"
+    if isinstance(data, dict):
+        regions = []
+        for page_idx, page in enumerate(data.get("pages", [])):
+            pw = page.get("page_width", 0)
+            ph = page.get("page_height", 0)
+            for item_idx, item in enumerate(page.get("items", [])):
+                bbox = item.get("bbox")
+                if bbox is None:
+                    continue
+                ls_bbox = _convert_single_bbox(bbox, pw, ph)
+                if ls_bbox is None:
+                    continue
+                label = map_label(item)
+                regions.append({
+                    "id": f"region_{page_idx}_{item_idx}",
+                    "from_name": "layout_label",
+                    "to_name": "pdf",
+                    "type": "rectanglelabels",
+                    "value": {**ls_bbox, "rectanglelabels": [label]},
+                    "page_index": page_idx,
+                })
+        return regions
+
+    raise ValueError(f"Unsupported JSON structure in {source_file}")
 
 def map_label(item):
     """
@@ -183,12 +210,12 @@ def main(project_id: int, model_version: str):
             print(f"skipping {output.name}: no matching task found")
             continue
 
-    ls.predictions.create(
-        project=project_id,
-        task=task_id,
-        result=regions,
-        model_version=model_version
-    )
+        ls.predictions.create(
+            project=project_id,
+            task=task_id,
+            result=regions,
+            model_version=model_version
+        )
 
     print(f"uploaded {len(regions)} for predictions for task {task_id} ({output.name})")
 
