@@ -22,10 +22,14 @@ docling [--from 'pdf' --to 'output (json, html)'] source_file
 
 [Full list of Docling CLI options](https://docling-project.github.io/docling/reference/cli/).
 
-For our tests, we added the `--` options:
+> [!WARNING] You may run out of memory without the following options, please make sure to add them on your first run.
+
+For our tests, please add the `--` options:
 
 - `pdf-backend pypdfium2`: which makes the overall process a lot faster
 - (optional) `no-ocr`: forces it to run without OCR
+
+
 
 This is better for quick testing with a single document.
 
