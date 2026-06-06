@@ -1,3 +1,10 @@
+"""
+batch_converter.py:
+    Create a folder called `inputs`, filled with your source PDFs.
+    This will convert it into JSON, at the `outputs/` folder. 
+
+"""
+
 import json
 import logging
 import time

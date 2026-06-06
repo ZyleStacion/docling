@@ -1,20 +1,17 @@
-Tasks:
+# About this repo
 
-1. Collecting Metrics
-2. Trying various outputs
-3. Trying different industry documents
+Currently, the repo contains two files:
 
-# Setup
+1. [`batch_converter.py`](batch_converter.py): this script allows you to convert multiple PDFs from an `inputs/` directory with the same configuration.
+2. [`convert_to_ls.py`](convert_to_ls.py): this script converts Docling exported conversions into Label Studio format.
+
+## Docling Setup
 
 1. Run `pip install docling` 😄
 
 > optional: run `pip install --upgrade label-studio-sdk` for integration with label studio **experimental: we have to verify the label studio version first**
 
-2. Get and use a HuggingFace token
-
-Once installed, you can experiment with:
-
-## 1. Docling CLI
+### 1. Docling CLI
 
 Run (processing is faster if you provide a Hugging Face token):
 
@@ -32,13 +29,14 @@ For our tests, we added the `--` options:
 
 This is better for quick testing with a single document.
 
-## 2. Code Approach
+### 2. Code Approach
 
 Docling's default config will fail with large PDFs. Follow these steps to make sure it runs smoothly.
 
 We can approach this by:
 
 1. Modifying the pipeline's settings (current approach)
+**or**
 2. Chunking the data before processing it
 
 I would recommend adding a HuggingFace token before starting. This ensures your models get downloaded fast. The below is for powershell.
@@ -47,7 +45,7 @@ I would recommend adding a HuggingFace token before starting. This ensures your 
     $env:HF_TOKEN="your_token_here"
 ```
 
-Then run `converter.py`! Below is some code explanation if you'd like to understand how it works.
+Then run `batch_converter.py`! Below is some code explanation if you'd like to understand how it works.
 
 ```python
 # Import Docling's required libraries
@@ -87,11 +85,7 @@ doc_converter = DocumentConverter(
 
 ---
 
-## Documentation Notes
-
-This section abstracts my learning from the [Docling documentation site](https://docling-project.github.io/docling/).
-
-### Architecture
+### Docling Architecture
 
 ![[Docling Testing-1779986725313.webp|633]]
 [Source](https://docling-project.github.io/docling/concepts/architecture/)
