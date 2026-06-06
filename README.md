@@ -87,9 +87,6 @@ doc_converter = DocumentConverter(
 
 ### Docling Architecture
 
-![[Docling Testing-1779986725313.webp|633]]
-[Source](https://docling-project.github.io/docling/concepts/architecture/)
-
 Simply put, the 'document converter' can employ a specific pipeline for use based on specific formats.
 
 It returns a 'Docling document', which can then be used to call export methods in markdown, dictionary, or document tokens. Alternatively, it can be serialised or chunked.
