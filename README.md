@@ -7,6 +7,9 @@ Tasks:
 # Setup
 
 1. Run `pip install docling` 😄
+
+> optional: run `pip install --upgrade label-studio-sdk` for integration with label studio **experimental: we have to verify the label studio version first**
+
 2. Get and use a HuggingFace token
 
 Once installed, you can experiment with:
@@ -22,14 +25,10 @@ docling [--from 'pdf' --to 'output (json, html)'] source_file
 
 [Full list of Docling CLI options](https://docling-project.github.io/docling/reference/cli/).
 
-> [!WARNING] You may run out of memory without the following options, please make sure to add them on your first run.
-
-For our tests, please add the `--` options:
+For our tests, we added the `--` options:
 
 - `pdf-backend pypdfium2`: which makes the overall process a lot faster
 - (optional) `no-ocr`: forces it to run without OCR
-
-
 
 This is better for quick testing with a single document.
 
@@ -66,21 +65,19 @@ from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
 To configure the pipeline directly, edit the following
 
 ```python
+# Edit the pipeline here
 pipeline_options = PdfPipelineOptions()
-
-# --- SETTING: Enable/Disable OCR
 pipeline_options.do_ocr = False # We run out of memory when using OCR
 pipeline_options.do_table_structure = True
 
-# --- SETTING: Makes the pipeline use 'fast' table detection
+# --- Not exactly sure about this one right now
 pipeline_options.table_structure_options = TableStructureOptions(do_cell_matching=False)
 
 # Instantiate DocumentConverter, and pass pipeline options + PyPdfium2
 doc_converter = DocumentConverter(
     format_options={
         InputFormat.PDF: PdfFormatOption (
-            pipeline_options=pipeline_options,
-            # SETTING: Change this line to use a different backend 
+            pipeline_options=pipeline_options, 
             backend=PyPdfiumDocumentBackend
         )
     }

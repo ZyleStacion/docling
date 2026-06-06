@@ -16,20 +16,19 @@ from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
 
 _log = logging.getLogger(__name__)
 
-def _iter_input_files(input_dir: Path) -> list[Path]:
-    return sorted(path for path in input_dir.rglob("*") if path.is_file())
-
+def _iter_input_files(INPUT_DIR: Path) -> list[Path]:
+    return sorted(path for path in INPUT_DIR.rglob("*") if path.is_file())
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
 
-    input_dir = Path("./inputs")
-    output_dir = Path("./outputs")
-    output_dir.mkdir(parents=True, exist_ok=True)
+    INPUT_DIR = Path("./inputs")
+    OUTPUT_DIR = Path("./outputs")
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    input_files = _iter_input_files(input_dir)
+    input_files = _iter_input_files(INPUT_DIR)
     if not input_files:
-        _log.warning("No files found in %s", input_dir)
+        _log.warning("No files found in %s", INPUT_DIR)
         return
 
     # Edit the pipeline here
@@ -54,7 +53,7 @@ def main() -> None:
         result = doc_converter.convert(input_file)
 
         # Prepare loggign information (source file, conversion method, and document in dict format)
-        output_file = output_dir / f"{input_file.stem}.json"
+        output_file = OUTPUT_DIR / f"{input_file.stem}.json"
         payload = {
             "source_file": str(input_file),
             "conversion": result.model_dump(),
@@ -65,10 +64,10 @@ def main() -> None:
             json.dump(payload, file_handle, ensure_ascii=False, indent=2)
 
     elapsed_seconds = time.perf_counter() - start_time
-    stats_file = output_dir / "conversion_stats.json"
+    stats_file = OUTPUT_DIR / "conversion_stats.json"
     stats = {
-        "input_directory": str(input_dir),
-        "output_directory": str(output_dir),
+        "INPUT_DIRectory": str(INPUT_DIR),
+        "OUTPUT_DIRectory": str(OUTPUT_DIR),
         "files_converted": len(input_files),
         "elapsed_seconds": elapsed_seconds,
     }

@@ -1,2 +1,8 @@
+.obsidian
 .venv
-.env
+
+# Raw processing files
+inputs/
+outputs/
+ground-truths/
+label-studio-output/o
