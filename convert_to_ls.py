@@ -7,9 +7,13 @@ from label_studio_sdk.client import LabelStudio
 
 import argparse
 import json
-from collections.abc import Iterable
+import time
 from pathlib import Path
-from uuid import uuid4
+
+from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
+from docling.datamodel.base_models import InputFormat
+from docling.datamodel.pipeline_options import PdfPipelineOptions, TableStructureOptions
+from docling.document_converter import DocumentConverter, PdfFormatOption
 
 LABEL_STUDIO = "http://localhost:8080"
 LS_API_KEY = "a81a470adcac997a1fc177fe9d09aec21a84e48f"
@@ -17,7 +21,9 @@ IMAGE_SERVER = "http://localhost:9090"
 PREDICTIONS_DIR = "outputs"
 OUTPUT_DIR = "label-studio-output"
 
+
 # Helper Functions
+
 
 def _convert_single_bbox(bbox, page_width, page_height):
     l = float(bbox["l"])
@@ -46,7 +52,7 @@ def _convert_single_bbox(bbox, page_width, page_height):
         "y": (y1 / page_height) * 100.0,
         "width": (w / page_width) * 100.0,
         "height": (h / page_height) * 100.0,
-        "rotation": 0
+        "rotation": 0,
     }
 
 
@@ -70,7 +76,6 @@ def convert_bbox_to_ls(source_file: str | Path) -> list[dict]:
     if isinstance(data, list):
         regions = []
         for task in data:
-            page_idx = task.get("id", 0)
             for ann in task.get("annotations", []):
                 for result in ann.get("result", []):
                     value = dict(result["value"])
@@ -79,9 +84,11 @@ def convert_bbox_to_ls(source_file: str | Path) -> list[dict]:
                         "id": result.get("id", f"region_{len(regions)}"),
                         "from_name": result.get("from_name", "layout_label"),
                         "to_name": result.get("to_name", "pdf"),
+                        "original_width": result.get("original_width", 0),
+                        "original_height": result.get("original_height", 0),
                         "type": result.get("type", "rectanglelabels"),
                         "value": value,
-                        "page_index": result.get("item_index", 0),
+                        "item_index": result.get("item_index", 0),
                         "origin": result.get("origin", "manual"),
                     })
         return regions
@@ -113,17 +120,22 @@ def convert_bbox_to_ls(source_file: str | Path) -> list[dict]:
                     ls_bbox = _convert_single_bbox(bbox, pw, ph)
                     if ls_bbox is None:
                         continue
+                    # Label Studio multi-page indexing is 0-based.
+                    item_index = max(int(page_no) - 1, 0)
                     regions.append({
                         "id": f"region_{list_key}_{len(regions)}",
                         "from_name": "layout_label",
                         "to_name": "pdf",
+                        "original_width": pw,
+                        "original_height": ph,
                         "type": "rectanglelabels",
                         "value": {**ls_bbox, "rectanglelabels": [label]},
-                        "page_index": page_no - 1,
+                        "item_index": item_index,
                     })
         return regions
 
     raise ValueError(f"Unsupported JSON structure in {source_file}")
+
 
 def map_label(item):
     """
@@ -158,6 +170,98 @@ def map_label(item):
 
     return label_map.get(raw, "unspecified")
 
+
+def do_ocr(source_file: str | Path) -> list[dict]:
+    """
+    Process a PDF through the Docling pipeline and return predictions in Label Studio format.
+
+    Args:
+        source_file: path to a .pdf file
+
+    Returns:
+        A list of prediction dicts with item_index, label, bbox_value, original_width/height, etc.
+    """
+    start_time = time.time()
+    predictions = []
+
+    pipeline_options = PdfPipelineOptions()
+    pipeline_options.do_ocr = False
+    pipeline_options.do_table_structure = False
+    pipeline_options.table_structure_options = TableStructureOptions(do_cell_matching=False)
+
+    converter = DocumentConverter(
+        format_options={
+            InputFormat.PDF: PdfFormatOption(
+                pipeline_options=pipeline_options,
+                backend=PyPdfiumDocumentBackend,
+            )
+        }
+    )
+
+    source_path = Path(source_file)
+    print(f"processing {source_path}")
+
+    result = converter.convert(source_path)
+    doc = result.document.export_to_dict()
+    pages = doc.get("pages", {})
+
+    for collection_name in ("texts", "pictures", "tables", "form_items", "key_value_items"):
+        for item in doc.get(collection_name, []):
+            mapped_label = map_label(item)
+
+            for prov in item.get("prov", []):
+                page_no = prov.get("page_no")
+                bbox = prov.get("bbox")
+                if page_no is None or bbox is None:
+                    continue
+
+                page_meta = pages.get(str(page_no)) or pages.get(page_no)
+                if not page_meta:
+                    continue
+
+                size = page_meta.get("size", {})
+                page_width = float(size.get("width", 0))
+                page_height = float(size.get("height", 0))
+
+                bbox_ls = _convert_single_bbox(bbox, page_width, page_height)
+                if not bbox_ls:
+                    continue
+
+                # Label Studio multi-page indexing is 0-based.
+                item_index = max(int(page_no) - 1, 0)
+                predictions.append({
+                    "item_index": item_index,
+                    "page_no": int(page_no),
+                    "label": mapped_label,
+                    "bbox_value": bbox_ls,
+                    "original_width": page_width,
+                    "original_height": page_height,
+                })
+
+    end_time = time.time() - start_time
+    print(f"Done. Processed in {end_time:.2f}s")
+    return predictions
+
+
+def _predictions_to_regions(predictions: list[dict]) -> list[dict]:
+    """Convert do_ocr() prediction dicts into Label Studio result regions."""
+    regions = []
+    for i, p in enumerate(predictions):
+        value = dict(p["bbox_value"])
+        value["rectanglelabels"] = [p["label"]]
+        regions.append({
+            "id": f"region{i}",
+            "from_name": "layout_label",
+            "to_name": "pdf",
+            "original_width": p["original_width"],
+            "original_height": p["original_height"],
+            "type": "rectanglelabels",
+            "value": value,
+            "item_index": p["item_index"],
+        })
+    return regions
+
+
 # Labeling Config for OCR using Multi-page document annotation
 labeling_config = """
 <View style="display:flex;align-items:start;gap:8px;flex-direction:row">
@@ -187,51 +291,80 @@ labeling_config = """
 
 """
 
-def print_ls_output():
+
+def print_ls_output(pdf_dir=None):
     out_dir = Path(OUTPUT_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    src_dir = Path(PREDICTIONS_DIR)
-    for src in sorted(src_dir.iterdir()):
-        if src.suffix != ".json":
-            continue
-        regions = convert_bbox_to_ls(src)
-        dst = out_dir / src.name
-        with open(dst, "w", encoding="utf-8") as f:
-            json.dump(regions, f, indent=2)
-        print(f"wrote {len(regions)} regions to {dst}")
+    if pdf_dir:
+        src_dir = Path(pdf_dir)
+        for src in sorted(src_dir.iterdir()):
+            if src.suffix.lower() not in (".pdf",):
+                continue
+            predictions = do_ocr(src)
+            regions = _predictions_to_regions(predictions)
+            dst = out_dir / f"{src.stem}.json"
+            with open(dst, "w", encoding="utf-8") as f:
+                json.dump(regions, f, indent=2)
+            print(f"wrote {len(regions)} regions to {dst}")
+    else:
+        src_dir = Path(PREDICTIONS_DIR)
+        for src in sorted(src_dir.iterdir()):
+            if src.suffix != ".json":
+                continue
+            regions = convert_bbox_to_ls(src)
+            dst = out_dir / src.name
+            with open(dst, "w", encoding="utf-8") as f:
+                json.dump(regions, f, indent=2)
+            print(f"wrote {len(regions)} regions to {dst}")
 
 
-def main(project_id: int, model_version: str):
-    # Initialise a label studio connection
+def main(project_id: int, model_version: str, pdf_dir=None):
     ls = LabelStudio(base_url=LABEL_STUDIO, api_key=LS_API_KEY)
 
-    # Set the labeling config
     ls.projects.update(id=project_id, label_config=labeling_config)
 
-    # Get a label studio project ID
     tasks = {t.id: t for t in ls.tasks.list(project=project_id)}
 
-    # Retrieve docling outputs from the folder
-    docling_outputs = Path(PREDICTIONS_DIR)
-    for output in sorted(docling_outputs.iterdir()):
-        if output.suffix != ".json":
-            continue
-        regions = convert_bbox_to_ls(output)
+    if pdf_dir:
+        src_dir = Path(pdf_dir)
+        for src in sorted(src_dir.iterdir()):
+            if src.suffix.lower() not in (".pdf",):
+                continue
+            predictions = do_ocr(src)
+            regions = _predictions_to_regions(predictions)
 
-        stem = output.stem
-        task_id = next((tid for tid, t in tasks.items() if stem in str(t.data)), None)
-        if task_id is None:
-            print(f"skipping {output.name}: no matching task found")
-            continue
+            stem = src.stem
+            task_id = next((tid for tid, t in tasks.items() if stem in str(t.data)), None)
+            if task_id is None:
+                print(f"skipping {src.name}: no matching task found")
+                continue
 
-        ls.predictions.create(
-            task=task_id,
-            result=regions,
-            model_version=model_version
-        )
+            ls.predictions.create(
+                task=task_id,
+                result=regions,
+                model_version=model_version,
+            )
+            print(f"uploaded {len(regions)} predictions for task {task_id} ({src.name})")
+    else:
+        docling_outputs = Path(PREDICTIONS_DIR)
+        for output in sorted(docling_outputs.iterdir()):
+            if output.suffix != ".json":
+                continue
+            regions = convert_bbox_to_ls(output)
 
-    print(f"uploaded {len(regions)} for predictions for task {task_id} ({output.name})")
+            stem = output.stem
+            task_id = next((tid for tid, t in tasks.items() if stem in str(t.data)), None)
+            if task_id is None:
+                print(f"skipping {output.name}: no matching task found")
+                continue
+
+            ls.predictions.create(
+                task=task_id,
+                result=regions,
+                model_version=model_version,
+            )
+            print(f"uploaded {len(regions)} predictions for task {task_id} ({output.name})")
 
 
 if __name__ == "__main__":
@@ -239,9 +372,10 @@ if __name__ == "__main__":
     parser.add_argument("--project_id", type=int, help="Label Studio project ID")
     parser.add_argument("--model_version", type=str, help="Provide details of your PDF backend and OCR changes or Table Formatter (if any)")
     parser.add_argument("--local", action="store_true", help="Write to label-studio-output/ instead of uploading")
+    parser.add_argument("--pdf-dir", type=str, help="Directory of PDF files to process through Docling pipeline (instead of reading pre-exported JSONs from outputs/)")
     args = parser.parse_args()
 
     if args.local or not args.project_id:
-        print_ls_output()
+        print_ls_output(pdf_dir=args.pdf_dir)
     else:
-        main(args.project_id, args.model_version)
+        main(args.project_id, args.model_version, pdf_dir=args.pdf_dir)
