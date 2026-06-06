@@ -86,28 +86,41 @@ def convert_bbox_to_ls(source_file: str | Path) -> list[dict]:
                     })
         return regions
 
-    # Docling native format — dict with "pages"
+    # Docling native format — dict with "pages" (keyed by page number str)
+    # Items live in top-level lists: texts, pictures, tables, form_items, key_value_items
     if isinstance(data, dict):
+        page_map = {}
+        for page_key, page_val in data.get("pages", {}).items():
+            size = page_val.get("size", {})
+            page_map[page_val.get("page_no", int(page_key))] = {
+                "width": size.get("width", 0),
+                "height": size.get("height", 0),
+            }
+
         regions = []
-        for page_idx, page in enumerate(data.get("pages", [])):
-            pw = page.get("page_width", 0)
-            ph = page.get("page_height", 0)
-            for item_idx, item in enumerate(page.get("items", [])):
-                bbox = item.get("bbox")
-                if bbox is None:
-                    continue
-                ls_bbox = _convert_single_bbox(bbox, pw, ph)
-                if ls_bbox is None:
-                    continue
+        item_lists = ["texts", "pictures", "tables", "form_items", "key_value_items"]
+        for list_key in item_lists:
+            for item in data.get(list_key, []):
                 label = map_label(item)
-                regions.append({
-                    "id": f"region_{page_idx}_{item_idx}",
-                    "from_name": "layout_label",
-                    "to_name": "pdf",
-                    "type": "rectanglelabels",
-                    "value": {**ls_bbox, "rectanglelabels": [label]},
-                    "page_index": page_idx,
-                })
+                for prov in item.get("prov", []):
+                    page_no = prov.get("page_no", 1)
+                    page_info = page_map.get(page_no, {})
+                    pw = page_info.get("width", 0)
+                    ph = page_info.get("height", 0)
+                    bbox = prov.get("bbox")
+                    if bbox is None:
+                        continue
+                    ls_bbox = _convert_single_bbox(bbox, pw, ph)
+                    if ls_bbox is None:
+                        continue
+                    regions.append({
+                        "id": f"region_{list_key}_{len(regions)}",
+                        "from_name": "layout_label",
+                        "to_name": "pdf",
+                        "type": "rectanglelabels",
+                        "value": {**ls_bbox, "rectanglelabels": [label]},
+                        "page_index": page_no - 1,
+                    })
         return regions
 
     raise ValueError(f"Unsupported JSON structure in {source_file}")
@@ -174,7 +187,6 @@ labeling_config = """
 
 """
 
-
 def print_ls_output():
     out_dir = Path(OUTPUT_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -194,6 +206,9 @@ def main(project_id: int, model_version: str):
     # Initialise a label studio connection
     ls = LabelStudio(base_url=LABEL_STUDIO, api_key=LS_API_KEY)
 
+    # Set the labeling config
+    ls.projects.update(id=project_id, label_config=labeling_config)
+
     # Get a label studio project ID
     tasks = {t.id: t for t in ls.tasks.list(project=project_id)}
 
@@ -211,7 +226,6 @@ def main(project_id: int, model_version: str):
             continue
 
         ls.predictions.create(
-            project=project_id,
             task=task_id,
             result=regions,
             model_version=model_version
