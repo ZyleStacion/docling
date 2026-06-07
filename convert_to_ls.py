@@ -149,11 +149,19 @@ def map_label(item):
     """
     raw = str(item.get("label", "unspecified"))
 
+    if raw == "section_header":
+        level = int(item.get("level", 1))
+        if level < 1:
+            level = 1
+        if level > 5:
+            level = 5
+        return f"H{level}"
+
     label_map = {
         "caption": "caption",
         "checkbox_unselected": "form",
         "checkbox_selected": "form",
-        "document_index": "H1",
+        "document_index": "list",
         "footnote": "footnote",
         "formula": "formula",
         "list": "list",
@@ -161,7 +169,6 @@ def map_label(item):
         "page_footer": "text",
         "page_header": "text",
         "picture": "picture",
-        "section_header": "section_header",
         "table": "table",
         "title": "title",
         "text": "text",

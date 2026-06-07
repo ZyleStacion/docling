@@ -19,6 +19,7 @@ from docling.document_converter import DocumentConverter, PdfFormatOption
 # Import a custom model
 from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
 # from docling.datamodel.pipeline_options import TesseractOcrOptions, TesseractCliOcrOptions, OcrMacOptions
+from hierarchical.postprocessor import ResultPostprocessor
 
 def _iter_input_files(INPUT_DIR: Path) -> list[Path]:
     return sorted(path for path in INPUT_DIR.rglob("*") if path.is_file())
@@ -54,7 +55,9 @@ def main() -> None:
 
     for pdf in input_files:
         print(f"Processing {pdf.stem}")
-        result = doc_converter.convert(pdf)
+        source = pdf
+        result = doc_converter.convert(source)
+        ResultPostprocessor(result, source=source).process()
 
         # Export the result to docling JSON
         with open(OUTPUT_DIR / f"{pdf.stem}.json", "w", encoding="utf-8") as f:
